@@ -23,6 +23,7 @@ and raw_error =
   | NotWasmCompatible of lident * string
   | DropDeclaration of lident * string
   | NotTailCall of lident
+  | ConstantTimeValidatorFailure of string * string
 
 and location =
   string
@@ -156,7 +157,8 @@ let rec perr buf (loc, raw_error) =
         Idents.(to_c_identifier (string_of_lident lid))
   | NotTailCall lid ->
       p "%a is recursive but cannot be optimized to a tail-call" plid lid
-
+  | ConstantTimeValidatorFailure (context, reason) ->
+    p "Constant time validator failure in WebAssembly\nIn the %s, %s" context reason
 
 let maybe_fatal_error error =
   flush stdout;

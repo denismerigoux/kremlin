@@ -573,6 +573,7 @@ Supported options:|}
       Warnings.fatal_error "The module WasmSupport wasn't passed to kremlin or \
         was hidden in a bundle!";
     let files = is_support @ rest in
+    let secrecy_data = ConstantTime.analyse_function_prototype_secrecy files in
 
     (* The Wasm backend diverges here. We go to [CFlat] (an expression
      * language), then directly into the Wasm AST. *)
@@ -581,6 +582,8 @@ Supported options:|}
 
     let modules = CFlatToWasm.mk_files files in
     tick_print true "CFlatToWasm";
+
+    ConstantTime.check_modules secrecy_data modules;
 
     OutputJs.write_all !js_files modules !arg_print_wasm
 
