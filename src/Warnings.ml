@@ -158,7 +158,7 @@ let rec perr buf (loc, raw_error) =
   | NotTailCall lid ->
       p "%a is recursive but cannot be optimized to a tail-call" plid lid
   | ConstantTimeValidatorFailure (context, reason) ->
-    p "Constant time validator failure in WebAssembly\nIn the %s, %s" context reason
+    p " WebAssembly constant time validator failure.\nIn the %s, %s" context reason
 
 let maybe_fatal_error error =
   flush stdout;
