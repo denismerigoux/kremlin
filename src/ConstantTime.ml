@@ -16,7 +16,7 @@ let show_secrecy secrecy = match secrecy with
   | Public -> "P"
   | Zero -> "Z"
 
-type proto_secrecy = secrecy list * secrecy * A.lident
+type proto_secrecy = secrecy list * secrecy * A.ident
 
 module IdentMap = Map.Make (struct
     type t = A.ident
@@ -54,17 +54,17 @@ let analyse_function_prototype_secrecy (files : A.file list) : secrecy_data =
       List.fold_left (fun secrecy_data decl ->
           match decl_typ_ident decl with
           | None -> secrecy_data
-          | Some (lident,typ_args,typ) ->
+          | Some ((_,ident),typ_args,typ) ->
             try
               let funcs_secrecy = IdentMap.find filename secrecy_data in
               IdentMap.add filename
                 ((List.map typ_to_secret typ_args,
-                  typ_to_secret typ,lident)::funcs_secrecy)
+                  typ_to_secret typ, ident)::funcs_secrecy)
                 secrecy_data
             with
             | Not_found ->
               IdentMap.add filename
-                [List.map typ_to_secret typ_args, typ_to_secret typ, lident]
+                [List.map typ_to_secret typ_args, typ_to_secret typ, ident]
                 secrecy_data
         ) secrecy_data program
     ) IdentMap.empty files
@@ -227,7 +227,7 @@ and check_instr
   | WA.Call var ->
     let func_index = Int32.to_int var.WS.it in
     begin match List.nth wasm_func_secrecy func_index with
-      |  (args_proto,result_proto,(_,proto_name)) ->
+      |  (args_proto,result_proto,proto_name) ->
         let args = List.fold_left (fun acc _ ->
             (Stack.pop value_stack)::acc) [] args_proto
         in
@@ -304,28 +304,40 @@ and check_instr
 
 
 let check_module
-    (secrecy_data : proto_secrecy list)
+    (secrecy_data : secrecy_data)
     (module_ : WA.module_')
+    (module_name : string)
     (loc : loc)
   : unit =
-  let func_imports = ref 0 in
-  let wasm_func_secrecy : proto_secrecy list =
+  let module_secrecy_data = IdentMap.find module_name secrecy_data in
+  let whole_module_secrecy_data : proto_secrecy list =
     (List.rev (List.fold_left (fun acc import ->
          match import.WS.it.WA.idesc.WS.it with
          | WA.FuncImport var ->
-           let import_type =
-             match (List.nth module_.WA.types (Int32.to_int var.WS.it)).WS.it with
-             | WT.FuncType(args,_) ->
-               func_imports := !func_imports + 1;
-               (List.map (fun _ -> Public) args,
-                Secret,
-                ([],WU.encode import.WS.it.WA.item_name))
-           in
-           (import_type)::acc
+           let import_module_name = WU.encode import.WS.it.WA.module_name in
+           begin try
+               let import_module_funcs_secrecy =
+                 IdentMap.find import_module_name secrecy_data
+               in
+               let (args,res,func_name) = List.find (fun (_,_,func_name) ->
+                   func_name = WU.encode import.WS.it.WA.item_name
+                 ) import_module_funcs_secrecy
+               in
+               (args,res,func_name)::acc
+             with
+             | Not_found ->
+               match
+                 (List.nth module_.WA.types (Int32.to_int var.WS.it)).WS.it
+               with
+               | WT.FuncType(args,_) ->
+                 (List.map (fun _ -> Public) args,
+                  Secret,
+                  (WU.encode import.WS.it.WA.item_name))::acc
+           end
          | _ -> acc
-       ) [] module_.WA.imports))@secrecy_data
+       ) [] module_.WA.imports))@module_secrecy_data
   in
-  List.iter2 (fun func (proto_args,proto_result,(_,proto_name)) ->
+  List.iter2 (fun func (proto_args,proto_result,proto_name) ->
       let locals_secrecy = LocalMap.empty in
       let (_,locals_secrecy) = List.fold_left
           (fun (index,locals_secrecy) arg_secret ->
@@ -335,7 +347,7 @@ let check_module
       in
       let loc = (L.In (Printf.sprintf "function %s" proto_name))::loc in
       let _, value_stack = check_instrs
-          wasm_func_secrecy
+          whole_module_secrecy_data
           locals_secrecy
           (Stack.create ())
           proto_result
@@ -346,7 +358,7 @@ let check_module
       let res = Stack.pop value_stack in
       if proto_result = Public then
         assert_public res "return value of a function" loc;
-    ) module_.WA.funcs secrecy_data
+    ) module_.WA.funcs module_secrecy_data
 
 let check_modules
     (secrecy_data : secrecy_data )
@@ -355,5 +367,5 @@ let check_modules
   List.iter (fun (module_name, module_) ->
       let loc =  [L.File(module_name)] in
       if module_name <> "WasmSupport" then
-        check_module (IdentMap.find module_name secrecy_data) module_.WS.it loc
+        check_module secrecy_data module_.WS.it module_name loc
     ) modules
