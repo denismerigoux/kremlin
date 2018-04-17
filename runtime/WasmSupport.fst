@@ -6,6 +6,7 @@ module C = FStar.Int.Cast
 module I64 = FStar.Int64
 module U32 = FStar.UInt32
 module U64 = FStar.UInt64
+module H64 = Hacl.UInt64
 
 (* Functions implemented primitively in JS. *)
 
@@ -30,8 +31,10 @@ let check_buffer_size (s: U32.t): Stack unit (fun _-> True) (fun _ _ _ -> True) 
 
 (* TODO: all of these functions are copy-pastes from whatever is written in
  * kremlib.h. They OUGHT TO BE implement in F*! *)
-let eq_mask64 (x y: U64.t) =
-  let open FStar.UInt64 in
+let eq_mask64 (x y: H64.t) =
+  let x = U64.uint_to_t (H64.v x) in
+  let y = U64.uint_to_t (H64.v y) in
+  let open U64 in
   let x = lognot (logxor x y) in
   let x = shift_left x 32ul in
   let x = shift_left x 16ul in
@@ -42,7 +45,9 @@ let eq_mask64 (x y: U64.t) =
   FStar.Int64.( shift_right (FStar.Int.Cast.uint64_to_int64 x) 63ul )
 
 #set-options "--lax"
-let gte_mask64 (x y: U64.t) =
+let gte_mask64 (x y: H64.t) =
+  let x = U64.uint_to_t (H64.v x) in
+  let y = U64.uint_to_t (H64.v y) in
   let low63 = U64.lognot (C.int64_to_uint64 (I64.shift_right
     (I64.sub
       (C.uint64_to_int64 (U64.logand x 0x7fffffffffffffffUL))

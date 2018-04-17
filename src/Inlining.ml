@@ -131,6 +131,14 @@ let inline_analysis files =
       Hashtbl.replace map lid (Black, flags, 0, body);
       false
   in
+  let manipulate_secrets lid =
+    match lid with
+    | (["Hacl"; "UInt8"], _)
+    | (["Hacl"; "UInt32"], _)
+    | (["Hacl"; "UInt64"], _)
+      -> true
+    | _ -> false
+  in
   Hashtbl.add map ([ "kremlinit" ], "globals") (Black, [], 0, Helpers.any);
   let must_disappear lid =
     let _, flags, _, _ = Hashtbl.find map lid in
@@ -138,6 +146,7 @@ let inline_analysis files =
   in
   let must_inline lid =
     let _, flags, _, _ = Hashtbl.find map lid in
+    not (manipulate_secrets lid) &&
     (!Options.wasm && small_enough lid) ||
     List.mem Substitute flags ||
     must_disappear lid

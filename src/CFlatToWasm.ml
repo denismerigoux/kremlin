@@ -79,7 +79,11 @@ let primitives = [
   "store32_be";
   "store64_le";
   "store64_be";
-  "store128_le"
+  "store128_le";
+  "Hacl_Endianness_hstore32_le";
+  "Hacl_Endianness_hload32_le";
+  "Hacl_Cast_uint32_to_sint32";
+  "Hacl_Cast_uint8_to_sint8"
 ]
 
 let is_primitive x =
@@ -716,6 +720,29 @@ and mk_expr env (e: expr): W.Ast.instr list =
   | CallFunc ("store64_be", [ e1; e2 ]) ->
       mk_expr env (CallFunc ("store64_le", [ e1; CallFunc ("WasmSupport_betole64", [ e2 ])]))
 
+  | CallFunc ("Hacl_Endianness_hstore32_le", [u8_buffer ; u32_addr ]) ->
+    mk_expr env u8_buffer @
+    mk_expr env u32_addr @
+    [ dummy_phrase W.Ast.(Load { ty = mk_type I32; align = 0; offset = 0l; sz = None })] @
+    [ dummy_phrase W.Ast.(Store { ty = mk_type I32; align = 0; offset = 0l; sz = None })] @
+    mk_unit
+
+  | CallFunc ("Hacl_Endianness_hload32_le", [ u8_buffer; u32_addr ]) ->
+    mk_expr env u32_addr @
+    mk_expr env u8_buffer @
+    [ dummy_phrase W.Ast.(Load { ty = mk_type I32; align = 0; offset = 0l; sz = None })] @
+    [ dummy_phrase W.Ast.(Store { ty = mk_type I32; align = 0; offset = 0l; sz = None })] @
+    mk_unit
+
+
+
+  | CallFunc ("Hacl_Cast_uint32_to_sint32", [ arg; address ])
+  | CallFunc ("Hacl_Cast_uint8_to_sint8", [ arg; address ])     ->
+    mk_expr env arg @
+    mk_expr env address @
+    [ dummy_phrase W.Ast.(Store { ty = mk_type I32; align = 0; offset = 0l; sz = None })] @
+    mk_unit
+
   | CallFunc (name, es) ->
       KList.map_flatten (mk_expr env) es @
       [ dummy_phrase (W.Ast.Call (mk_var (find_func env name))) ]
@@ -859,7 +886,7 @@ let mk_func env { args; locals; body; name; ret; _ } =
         let n_args = List.length args in
         let fst64 = n_args in
         let snd64 = n_args + 1 in
-        let read128 arg = 
+        let read128 arg =
           (* Load low *)
           [ dummy_phrase (W.Ast.GetLocal (mk_var arg)) ] @
           [ dummy_phrase W.Ast.(Load { ty = mk_type I64; align = 0; offset = 0l; sz = None }) ] @
@@ -867,12 +894,12 @@ let mk_func env { args; locals; body; name; ret; _ } =
           (* Load high *)
           [ dummy_phrase (W.Ast.GetLocal (mk_var arg)) ] @
           [ dummy_phrase (W.Ast.Const (mk_int32 8l)) ] @
-          i32_add @ 
+          i32_add @
           [ dummy_phrase W.Ast.(Load { ty = mk_type I64; align = 0; offset = 0l; sz = None }) ] @
           [ dummy_phrase (W.Ast.SetLocal (mk_var snd64)) ]
         in
         read128 0 @
-        Debug.mk env [ `String "a.low"; `Local64 fst64; `String "a.high"; `Local64 snd64 ] @ 
+        Debug.mk env [ `String "a.low"; `Local64 fst64; `String "a.high"; `Local64 snd64 ] @
         read128 1 @
         Debug.mk env [ `String "b.low"; `Local64 fst64; `String "b.high"; `Local64 snd64 ]
       else
