@@ -80,6 +80,12 @@ let primitives = [
   "store64_le";
   "store64_be";
   "store128_le";
+  "Hacl_UInt8_logxor";
+  "Hacl_UInt32_add_mod";
+  "Hacl_UInt32_logxor";
+  "Hacl_UInt32_logor";
+  "Hacl_UInt32_shift_right";
+  "Hacl_UInt32_shift_left";
   "Hacl_Endianness_hstore32_le";
   "Hacl_Endianness_hload32_le";
   "Hacl_Cast_uint32_to_sint32";
@@ -149,6 +155,9 @@ let i32_sub =
 
 let i32_xor =
   [ dummy_phrase (W.Ast.Binary (mk_value I32 W.Ast.IntOp.Xor)) ]
+
+let i32_or =
+  [ dummy_phrase (W.Ast.Binary (mk_value I32 W.Ast.IntOp.Or)) ]
 
 let i32_not =
   mk_const (mk_int32 Int32.zero) @
@@ -634,7 +643,7 @@ and mk_expr env (e: expr): W.Ast.instr list =
   | CallFunc ("C_Nullity_null", [ _ ]) ->
       [ dummy_phrase (W.Ast.Const (mk_int32 0l)) ]
 
-  | CallFunc ("load32_le", [ e ]) ->
+  | CallFunc (("Hacl_Endianness_hload32_le" | "load32_le"), [ e ]) ->
       mk_expr env e @
       [ dummy_phrase W.Ast.(Load { ty = mk_type I32; align = 0; offset = 0l; sz = None })]
 
@@ -702,7 +711,7 @@ and mk_expr env (e: expr): W.Ast.instr list =
       (* This is just a glorified memcpy. *)
       mk_unit
 
-  | CallFunc ("store32_le", [ e1; e2 ]) ->
+  | CallFunc (("Hacl_Endianness_hstore32_le" | "store32_le"), [ e1; e2 ]) ->
       mk_expr env e1 @
       mk_expr env e2 @
       [ dummy_phrase W.Ast.(Store { ty = mk_type I32; align = 0; offset = 0l; sz = None })] @
@@ -720,28 +729,35 @@ and mk_expr env (e: expr): W.Ast.instr list =
   | CallFunc ("store64_be", [ e1; e2 ]) ->
       mk_expr env (CallFunc ("store64_le", [ e1; CallFunc ("WasmSupport_betole64", [ e2 ])]))
 
-  | CallFunc ("Hacl_Endianness_hstore32_le", [u8_buffer ; u32_addr ]) ->
-    mk_expr env u8_buffer @
-    mk_expr env u32_addr @
-    [ dummy_phrase W.Ast.(Load { ty = mk_type I32; align = 0; offset = 0l; sz = None })] @
-    [ dummy_phrase W.Ast.(Store { ty = mk_type I32; align = 0; offset = 0l; sz = None })] @
-    mk_unit
+  | CallFunc (("Hacl_UInt8_logxor" | "Hacl_UInt32_logxor"), [ e1; e2 ]) ->
+      mk_expr env e1 @
+      mk_expr env e2 @
+      i32_xor
 
-  | CallFunc ("Hacl_Endianness_hload32_le", [ u8_buffer; u32_addr ]) ->
-    mk_expr env u32_addr @
-    mk_expr env u8_buffer @
-    [ dummy_phrase W.Ast.(Load { ty = mk_type I32; align = 0; offset = 0l; sz = None })] @
-    [ dummy_phrase W.Ast.(Store { ty = mk_type I32; align = 0; offset = 0l; sz = None })] @
-    mk_unit
+  | CallFunc (("Hacl_UInt8_logor" | "Hacl_UInt32_logor"), [ e1; e2 ]) ->
+      mk_expr env e1 @
+      mk_expr env e2 @
+      i32_or
 
+  | CallFunc (("Hacl_UInt8_add_mod" | "Hacl_UInt32_add_mod"), [ e1; e2 ]) ->
+      mk_expr env e1 @
+      mk_expr env e2 @
+      i32_add @
+      mk_const (mk_int32 (Int32.of_int (0xFF))) @
+      i32_and
 
+  | CallFunc ("Hacl_UInt32_shift_left", [ e1; e2 ]) ->
+      mk_expr env e1 @
+      mk_expr env e2 @
+      [ dummy_phrase (W.Ast.Binary (mk_value I32 W.Ast.IntOp.Shl)) ]
 
-  | CallFunc ("Hacl_Cast_uint32_to_sint32", [ arg; address ])
-  | CallFunc ("Hacl_Cast_uint8_to_sint8", [ arg; address ])     ->
-    mk_expr env arg @
-    mk_expr env address @
-    [ dummy_phrase W.Ast.(Store { ty = mk_type I32; align = 0; offset = 0l; sz = None })] @
-    mk_unit
+  | CallFunc ("Hacl_UInt32_shift_right", [ e1; e2 ]) ->
+      mk_expr env e1 @
+      mk_expr env e2 @
+      [ dummy_phrase (W.Ast.Binary (mk_value I32 W.Ast.IntOp.ShrU)) ]
+
+  | CallFunc (("Hacl_Cast_uint32_to_sint32" | "Hacl_Cast_uint8_to_sint8"), [ e ]) ->
+      mk_expr env e
 
   | CallFunc (name, es) ->
       KList.map_flatten (mk_expr env) es @

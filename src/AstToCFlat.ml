@@ -47,6 +47,8 @@ let size_of (t: typ): size =
   match t with
   | TInt w ->
       size_of_width w
+  | TQualified ([], ("Hacl_UInt8_t" | "Hacl_UInt32_t")) ->
+      I32
   | TArray _ | TBuf _ ->
       I32
   | TBool | TUnit ->
@@ -67,7 +69,9 @@ let size_of (t: typ): size =
 let array_size_of (t: typ): array_size =
   match t with
   | TInt w ->
-      array_size_of_width w
+    array_size_of_width w
+  | TQualified ([], ("Hacl_UInt8_t" | "Hacl_UInt32_t")) ->
+      A32
   | TArray _ | TBuf _ ->
       A32
   | TBool | TUnit ->
@@ -98,6 +102,8 @@ let fields_of_struct =
 (* The exact size as a number of bytes of any type. *)
 let rec byte_size (env: env) (t: typ): int =
   match t with
+  | TQualified ([], ("Hacl_UInt8_t" | "Hacl_UInt32_t")) ->
+    4
   | TQualified lid ->
       begin try
         (LidMap.find lid env.structs).size
@@ -287,7 +293,6 @@ let cflat_unit =
 let cflat_any =
   CF.Constant (K.UInt32, "0xbadcaffe")
 
-
 (* Desugar an array assignment into a series of possibly many assigments (e.g.
  * struct literal), or into a memcopy. We want to write [e] at address [dst]
  * corrected by an offset [ofs] in bytes. *)
@@ -300,7 +305,8 @@ let rec write_at (env: env)
   let rec write_at locals (ofs, e) =
     match e.typ with
     | TQualified lid ->
-        (* We are assigning something that's not a base type into an array. *)
+      (* We are assigning something that's not a base type into an array. *)
+      begin try
         let layout = LidMap.find lid env.structs in
         begin match e.node with
         | EFlat fields ->
@@ -324,6 +330,15 @@ let rec write_at (env: env)
             let dst = mk_add32 dst (mk_uint32 ofs) in
             mk_memcpy env locals dst src size
         end
+      with
+      | Not_found ->
+        (* It's an abstract type, i.e. something that has an array size. *)
+        let s = array_size_of e.typ in
+        assert (ofs mod bytes_in s = 0);
+        let ofs = ofs / bytes_in s in
+        let e = mk_expr_no_locals env e in
+        locals, [ CF.BufWrite (dst, mk_uint32 ofs, e, s) ]
+      end
     | _ ->
         (* It's a base type, i.e. something that has an array size. *)
         let s = array_size_of e.typ in

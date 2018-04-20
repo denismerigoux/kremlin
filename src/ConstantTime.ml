@@ -44,8 +44,13 @@ let typ_to_secret (typ: A.typ) : secrecy = match typ with
   | A.TInt _ | A.TBool | A.TUnit | A.TAny
   | A.TBuf _ | A.TArray _ ->
     Public
-  | A.TQualified _ | A.TArrow _ | A.TApp _ | A.TBound _
-  | A.TTuple _ | A.TAnonymous _ ->
+  | A.TQualified ([], name) ->
+    if KString.starts_with name "Hacl_" then
+      Secret
+    else
+      assert false
+  | A.TArrow _ | A.TApp _ | A.TBound _
+  | A.TTuple _ | A.TAnonymous _ | A.TQualified _ ->
     assert false
 
 
@@ -89,14 +94,14 @@ let set_local
     (secrecy : secrecy)
     (loc : loc)
   : secrecy LocalMap.t =
-  try
-    let previous_secrecy = LocalMap.find var locals_secrecy in
-    if previous_secrecy = Public then
-      assert_public secrecy ("value assigned to a public local variable") loc;
-    locals_secrecy
-  with
-  | Not_found ->
-    LocalMap.add var secrecy locals_secrecy
+  begin try
+      let previous_secrecy = LocalMap.find var locals_secrecy in
+      if previous_secrecy = Public then
+        assert_public secrecy ("value assigned to a public local variable") loc
+    with
+    | Not_found -> ()
+  end;
+  LocalMap.add var secrecy locals_secrecy
 
 let constant_time_binop (op : WA.binop) : bool = match op with
   | WV.I32 (WA.I32Op.Add)
@@ -231,7 +236,7 @@ and check_instr
         let args = List.fold_left (fun acc _ ->
             (Stack.pop value_stack)::acc) [] args_proto
         in
-        let ctr = ref 0 in
+        let ctr = ref 1 in
         List.iter2 (fun arg arg_proto ->
             if arg_proto = Public then
               assert_public arg
@@ -315,24 +320,26 @@ let check_module
          match import.WS.it.WA.idesc.WS.it with
          | WA.FuncImport var ->
            let import_module_name = WU.encode import.WS.it.WA.module_name in
-           begin try
-               let import_module_funcs_secrecy =
-                 IdentMap.find import_module_name secrecy_data
-               in
+           let dummy_secrecy = match
+               (List.nth module_.WA.types (Int32.to_int var.WS.it)).WS.it
+             with
+             | WT.FuncType(args,_) ->
+               (List.map (fun _ -> Public) args,
+                Secret,
+                (WU.encode import.WS.it.WA.item_name))
+           in
+           if import_module_name = "Kremlin"  then dummy_secrecy::acc else begin
+             let import_module_funcs_secrecy =
+               IdentMap.find import_module_name secrecy_data
+             in
+             if (WU.encode import.WS.it.WA.item_name) = "WasmSupport_trap"
+             then dummy_secrecy::acc else begin
                let (args,res,func_name) = List.find (fun (_,_,func_name) ->
                    func_name = WU.encode import.WS.it.WA.item_name
                  ) import_module_funcs_secrecy
                in
                (args,res,func_name)::acc
-             with
-             | Not_found ->
-               match
-                 (List.nth module_.WA.types (Int32.to_int var.WS.it)).WS.it
-               with
-               | WT.FuncType(args,_) ->
-                 (List.map (fun _ -> Public) args,
-                  Secret,
-                  (WU.encode import.WS.it.WA.item_name))::acc
+             end
            end
          | _ -> acc
        ) [] module_.WA.imports))@module_secrecy_data
