@@ -334,8 +334,9 @@ let check_module
              in
              if (WU.encode import.WS.it.WA.item_name) = "WasmSupport_trap"
              then dummy_secrecy::acc else begin
+               let import_name = WU.encode import.WS.it.WA.item_name in
                let (args,res,func_name) = List.find (fun (_,_,func_name) ->
-                   func_name = WU.encode import.WS.it.WA.item_name
+                   func_name = import_name
                  ) import_module_funcs_secrecy
                in
                (args,res,func_name)::acc

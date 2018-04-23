@@ -124,8 +124,7 @@ let inline_analysis files =
     try
       let size = compute_size lid in
       (* 0 encodes a cycle meaning we shouldn't inline the function *)
-      (* 1 encodes functions coming from abstract types that we shouldn't inline either *)
-      let small = 1 < size && size < 1000 in
+      let small = 0 < size && size < 1000 in
       small
     with T.Cycle ->
       let _, flags, _, body = Hashtbl.find map lid in
@@ -136,12 +135,21 @@ let inline_analysis files =
   let must_disappear lid =
     let _, flags, _, _ = Hashtbl.find map lid in
     List.mem MustDisappear flags
-  in
+    in
   let must_inline lid =
     let _, flags, _, _ = Hashtbl.find map lid in
-     !Options.wasm && small_enough lid ||
-     List.mem Substitute flags ||
-    must_disappear lid
+    match lid with
+    | ["Hacl"; "UInt8"], _
+    | ["Hacl"; "UInt16"], _
+    | ["Hacl"; "UInt32"], _
+    | ["Hacl"; "UInt64"], _
+    | ["Hacl"; "UInt128"], _
+      ->
+      false
+    | _ ->
+      (!Options.wasm && small_enough lid) ||
+      List.mem Substitute flags ||
+      must_disappear lid
   in
   must_inline, must_disappear
 
