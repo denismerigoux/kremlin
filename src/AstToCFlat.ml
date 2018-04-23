@@ -103,7 +103,7 @@ let fields_of_struct =
 let rec byte_size (env: env) (t: typ): int =
   match t with
   | TQualified ([], ("Hacl_UInt8_t" | "Hacl_UInt32_t")) ->
-    4
+    bytes_in (array_size_of t)
   | TQualified lid ->
       begin try
         (LidMap.find lid env.structs).size
