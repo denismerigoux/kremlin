@@ -762,7 +762,7 @@ and mk_expr env (e: expr): W.Ast.instr list =
       [ dummy_phrase (W.Ast.Binary (mk_value I32 W.Ast.IntOp.ShrU)) ]
 
   | CallFunc (("Hacl_Cast_uint32_to_sint32" | "Hacl_Cast_uint8_to_sint8"), [ e ]) ->
-      mk_expr env e 
+      mk_expr env e
 
   | CallFunc (name, es) ->
       KList.map_flatten (mk_expr env) es @

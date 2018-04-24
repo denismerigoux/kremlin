@@ -70,8 +70,10 @@ let array_size_of (t: typ): array_size =
   match t with
   | TInt w ->
     array_size_of_width w
-  | TQualified ([], ("Hacl_UInt8_t" | "Hacl_UInt32_t")) ->
+  | TQualified ([], "Hacl_UInt32_t") ->
       A32
+  | TQualified ([], "Hacl_UInt8_t") ->
+      A8
   | TArray _ | TBuf _ ->
       A32
   | TBool | TUnit ->
@@ -159,6 +161,8 @@ let cell_size (env: env) (t: typ): int * array_size =
     size / 8, A64
   in
   match t with
+  | TQualified ([], ("Hacl_UInt32_t" | "Hacl_UInt8_t")) ->
+      1, array_size_of t
   | TQualified _ | TAnonymous _ ->
       round_up (byte_size env t)
   | _ ->

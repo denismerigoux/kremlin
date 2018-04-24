@@ -139,12 +139,12 @@ let inline_analysis files =
   let must_inline lid =
     let _, flags, _, _ = Hashtbl.find map lid in
     match lid with
-    | ["Hacl"; "UInt8"], _
-    | ["Hacl"; "UInt16"], _
-    | ["Hacl"; "UInt32"], _
-    | ["Hacl"; "UInt64"], _
-    | ["Hacl"; "UInt128"], _
-      ->
+    | ["Hacl"; "UInt8"], id
+    | ["Hacl"; "UInt16"], id
+    | ["Hacl"; "UInt32"], id
+    | ["Hacl"; "UInt64"], id
+    | ["Hacl"; "UInt128"], id
+      when not (KString.starts_with id "op_") ->
       false
     | _ ->
       (!Options.wasm && small_enough lid) ||

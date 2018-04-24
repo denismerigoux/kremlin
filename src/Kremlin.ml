@@ -184,6 +184,8 @@ Supported options:|}
       tools when acting as a driver for F* or the C compiler";
     "-diagnostics", Arg.Set arg_diagnostics, " informative report";
     "-wasm", Arg.Set Options.wasm, "  emit a .wasm file instead of C";
+    "-wasm-ct-validator", Arg.Set Options.wasm_ct_validator,
+    " check that the emitted Webassembly code is constant-time";
     "", Arg.Unit (fun _ -> ()), " ";
 
     (* Controlling the behavior of KreMLin *)
@@ -583,7 +585,8 @@ Supported options:|}
     let modules = CFlatToWasm.mk_files files in
     tick_print true "CFlatToWasm";
 
-    ConstantTime.check_modules secrecy_data modules;
+    if !Options.wasm_ct_validator then
+      ConstantTime.check_modules secrecy_data modules;
 
     OutputJs.write_all !js_files modules !arg_print_wasm
 

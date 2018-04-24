@@ -16,7 +16,7 @@ let show_secrecy secrecy = match secrecy with
   | Public -> "P"
   | Zero -> "Z"
 
-type proto_secrecy = secrecy list * secrecy * A.ident
+type proto_secrecy = secrecy list * secrecy option * A.ident
 
 module IdentMap = Map.Make (struct
     type t = A.ident
@@ -60,16 +60,18 @@ let analyse_function_prototype_secrecy (files : A.file list) : secrecy_data =
           match decl_typ_ident decl with
           | None -> secrecy_data
           | Some ((_,ident),typ_args,typ) ->
+            let proto_secrecy =
+              List.map typ_to_secret typ_args, Some (typ_to_secret typ), ident
+            in
             try
               let funcs_secrecy = IdentMap.find filename secrecy_data in
               IdentMap.add filename
-                ((List.map typ_to_secret typ_args,
-                  typ_to_secret typ, ident)::funcs_secrecy)
+                (proto_secrecy::funcs_secrecy)
                 secrecy_data
             with
             | Not_found ->
               IdentMap.add filename
-                [List.map typ_to_secret typ_args, typ_to_secret typ, ident]
+                [proto_secrecy]
                 secrecy_data
         ) secrecy_data program
     ) IdentMap.empty files
@@ -90,16 +92,21 @@ let assert_public (arg : secrecy) (err_context : string) (loc: loc) : unit =
 
 let set_local
     (var : int32)
+    (n_args: int)
     (locals_secrecy : secrecy LocalMap.t)
     (secrecy : secrecy)
     (loc : loc)
   : secrecy LocalMap.t =
-  begin try
-      let previous_secrecy = LocalMap.find var locals_secrecy in
-      if previous_secrecy = Public then
-        assert_public secrecy ("value assigned to a public local variable") loc
-    with
-    | Not_found -> ()
+  let var_i = Int32.to_int var in
+  begin if not (var_i >= n_args && var_i <= n_args + 4) then
+      (* When we are writing to one of the four sractch variables, we don't check the secrecy *)
+      begin try
+          let previous_secrecy = LocalMap.find var locals_secrecy in
+          if previous_secrecy = Public then
+            assert_public secrecy ("value assigned to a public local variable") loc
+        with
+        | Not_found -> ()
+      end;
   end;
   LocalMap.add var secrecy locals_secrecy
 
@@ -153,15 +160,17 @@ let unify_vt_binop (arg1 : secrecy) (arg2 : secrecy) (loc : loc) : secrecy =
 
 
 let rec check_instrs (wasm_func_secrecy : proto_secrecy list)
+    (n_args : int)
     (locals_secrecy : secrecy LocalMap.t)
     (value_stack : secrecy Stack.t)
-    (func_result : secrecy)
+    (func_result : secrecy option)
     (instrs: WA.instr list)
     (loc : loc)
   : secrecy LocalMap.t * secrecy Stack.t =
   List.fold_left (fun (locals_secrecy, value_stack) instr ->
       check_instr
         wasm_func_secrecy
+        n_args
         locals_secrecy
         value_stack
         func_result
@@ -171,9 +180,10 @@ let rec check_instrs (wasm_func_secrecy : proto_secrecy list)
 
 and check_instr
     (wasm_func_secrecy : proto_secrecy list)
+    (n_args : int)
     (locals_secrecy : secrecy LocalMap.t)
     (value_stack : secrecy Stack.t)
-    (func_result: secrecy)
+    (func_result: secrecy option)
     (instr: WA.instr)
     (loc : loc)
   : secrecy LocalMap.t * secrecy Stack.t =
@@ -185,7 +195,14 @@ and check_instr
     locals_secrecy, value_stack
   | WA.SetLocal var ->
     let arg_secret = Stack.pop value_stack in
-    set_local var.WS.it locals_secrecy arg_secret loc, value_stack
+    set_local var.WS.it n_args locals_secrecy arg_secret loc, value_stack
+  | WA.TeeLocal var ->
+    let arg_secret = Stack.pop value_stack in
+    let locals_secrecy, value_stack =
+      set_local var.WS.it n_args locals_secrecy arg_secret loc, value_stack
+    in
+    Stack.push arg_secret value_stack;
+    locals_secrecy, value_stack
   | WA.GetGlobal _ ->
     Stack.push Public value_stack;
     locals_secrecy, value_stack
@@ -231,6 +248,16 @@ and check_instr
     locals_secrecy, value_stack
   | WA.Call var ->
     let func_index = Int32.to_int var.WS.it in
+    (*
+      When the debug option "wasm-called" is enabled, there is an additional
+      import "debug" that has index 0 in the final Wasm module, thus shifting
+      all the other indices by one.
+    *)
+    let func_index = if Options.debug "wasm-calls" && func_index <> 0 then
+        func_index + 1
+      else
+        func_index
+    in
     begin match List.nth wasm_func_secrecy func_index with
       |  (args_proto,result_proto,proto_name) ->
         let args = List.fold_left (fun acc _ ->
@@ -246,7 +273,11 @@ and check_instr
                 loc;
             ctr := !ctr + 1
           ) args args_proto;
-        Stack.push result_proto value_stack;
+        begin match result_proto with
+          | Some v ->
+            Stack.push v value_stack
+          | None -> ()
+        end;
         locals_secrecy, value_stack
     end
   | WA.Drop ->
@@ -256,6 +287,7 @@ and check_instr
     let loc = (L.While)::loc in
     check_instrs
       wasm_func_secrecy
+      n_args
       locals_secrecy
       value_stack
       func_result
@@ -270,6 +302,7 @@ and check_instr
     let locals_secrecy, tstack_after =
       check_instrs
         wasm_func_secrecy
+        n_args
         locals_secrecy
         tstack
         func_result
@@ -280,6 +313,7 @@ and check_instr
     let locals_secrecy, fstack_after =
       check_instrs
         wasm_func_secrecy
+        n_args
         locals_secrecy
         fstack
         func_result
@@ -316,6 +350,7 @@ let check_module
   : unit =
   let module_secrecy_data = IdentMap.find module_name secrecy_data in
   let whole_module_secrecy_data : proto_secrecy list =
+    (if Options.debug "wasm-calls" then [[], None, "debug"] else []) @
     (List.rev (List.fold_left (fun acc import ->
          match import.WS.it.WA.idesc.WS.it with
          | WA.FuncImport var ->
@@ -325,7 +360,7 @@ let check_module
              with
              | WT.FuncType(args,_) ->
                (List.map (fun _ -> Public) args,
-                Secret,
+                Some Secret,
                 (WU.encode import.WS.it.WA.item_name))
            in
            if import_module_name = "Kremlin"  then dummy_secrecy::acc else begin
@@ -356,6 +391,7 @@ let check_module
       let loc = (L.In (Printf.sprintf "function %s" proto_name))::loc in
       let _, value_stack = check_instrs
           whole_module_secrecy_data
+          (List.length proto_args)
           locals_secrecy
           (Stack.create ())
           proto_result
@@ -364,7 +400,7 @@ let check_module
       in
       assert (Stack.length value_stack = 1);
       let res = Stack.pop value_stack in
-      if proto_result = Public then
+      if proto_result = Some Public then
         assert_public res "return value of a function" loc;
     ) module_.WA.funcs module_secrecy_data
 

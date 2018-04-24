@@ -25,6 +25,7 @@ let bundle: Bundle.t list ref = ref []
 let debug_modules: string list ref = ref []
 let debug s = List.exists ((=) s) !debug_modules
 let wasm = ref false
+let wasm_ct_validator = ref false
 let static_header: string list ref = ref []
 let minimal = ref false
 let by_ref: (string list * string) list ref = ref []
