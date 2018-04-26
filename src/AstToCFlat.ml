@@ -49,7 +49,7 @@ let size_of (t: typ): size =
       size_of_width w
   | TQualified ([], ("Hacl_UInt8_t" | "Hacl_UInt32_t" )) ->
       I32
-  | TQualified ([], ("Hacl_Uint64_t")) ->
+  | TQualified ([], ("Hacl_UInt64_t")) ->
       I64
   | TArray _ | TBuf _ ->
       I32

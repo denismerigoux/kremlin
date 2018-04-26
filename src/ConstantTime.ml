@@ -69,9 +69,12 @@ let analyse_function_prototype_secrecy (files : A.file list) : secrecy_data =
           | None -> secrecy_data
           | Some ((_,ident),typ_args,typ) ->
             let proto_secrecy =
-              if ident = "WasmSupport_align_64" then
+              match  ident with
+              | "WasmSupport_align_64" ->
                 [PointerToSecret], Some PointerToSecret, ident
-              else
+              | "WasmSupport_betole32" | "WasmSupport_betole64" ->
+                [Secret], Some Secret, ident
+              | _ ->
                 List.map typ_to_secret typ_args, Some (typ_to_secret typ), ident
             in
             try
@@ -198,6 +201,12 @@ let rec check_instrs (wasm_func_secrecy : proto_secrecy list)
         loc
     ) (locals_secrecy, value_stack) instrs
 
+and debug value_stack instr loc =
+  Printf.printf "Stack at"; KPrint.bprintf "%a" Location.ploc loc; Printf.printf ":";
+  Stack.iter (fun v -> Printf.printf " %s" (show_secrecy v)) value_stack;
+  Printf.printf "\n";
+  Wasm.Print.instr stdout 1 instr
+
 and check_instr
     (wasm_func_secrecy : proto_secrecy list)
     (n_args : int)
@@ -305,12 +314,19 @@ and check_instr
         in
         let ctr = ref 1 in
         List.iter2 (fun arg arg_proto ->
-            if arg_proto = Public then
-              assert_public arg
-                (KPrint.bsprintf
-                   "argument number %d of call to %s"
-                   !ctr proto_name)
-                loc;
+            begin match (arg, arg_proto) with
+              | (Public, Public) | (Secret, Secret)  | (Zero, Zero)
+              | (PointerToSecret, PointerToSecret)
+              | (Public, Zero) | (Zero, Public)
+              | (Public, Secret) | (Zero, Secret) -> ()
+              | _ ->
+                Warnings.maybe_fatal_error
+                  (KPrint.bsprintf "%a" L.ploc loc, Warnings.ConstantTimeValidatorFailure (
+                      KPrint.bsprintf "argument number %d in call to %s" !ctr proto_name,
+                      KPrint.bsprintf "expected value secrecy %s, got %s"
+                        (show_secrecy arg_proto) (show_secrecy arg)
+                    ))
+            end;
             ctr := !ctr + 1
           ) args args_proto;
         begin match result_proto with
