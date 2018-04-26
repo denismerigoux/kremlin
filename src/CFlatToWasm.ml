@@ -80,16 +80,26 @@ let primitives = [
   "store64_le";
   "store64_be";
   "store128_le";
-  "Hacl_UInt8_logxor";
-  "Hacl_UInt32_add_mod";
-  "Hacl_UInt32_logxor";
-  "Hacl_UInt32_logor";
-  "Hacl_UInt32_shift_right";
-  "Hacl_UInt32_shift_left";
-  "Hacl_Endianness_hstore32_le";
-  "Hacl_Endianness_hload32_le";
-  "Hacl_Cast_uint32_to_sint32";
-  "Hacl_Cast_uint8_to_sint8"
+  "Hacl_UInt8_logxor";"Hacl_UInt8_add_mod";"Hacl_UInt8_sub_mod";"Hacl_UInt8_mul_mod";
+  "Hacl_UInt8_logor";"Hacl_UInt8_logand";"Hacl_UInt8_logxor";"Hacl_UInt8_lognot";
+  "Hacl_UInt8_shift_left";"Hacl_UInt8_shift_right";
+  "Hacl_UInt8_eq_mask";"Hacl_UInt8_gte_mask";"Hacl_UInt8_gt_mask";
+  "Hacl_UInt8_lte_mask";"Hacl_UInt8_lt_mask";
+  "Hacl_UInt32_logxor";"Hacl_UInt32_add_mod";"Hacl_UInt32_sub_mod";"Hacl_UInt32_mul_mod";
+  "Hacl_UInt32_logor";"Hacl_UInt32_logand";"Hacl_UInt32_logxor";"Hacl_UInt32_lognot";
+  "Hacl_UInt32_shift_left";"Hacl_UInt32_shift_right";
+  "Hacl_UInt32_eq_mask";"Hacl_UInt32_gte_mask";"Hacl_UInt32_gt_mask";
+  "Hacl_UInt32_lte_mask";"Hacl_UInt32_lt_mask";
+  "Hacl_UInt64_logxor";"Hacl_UInt64_add_mod";"Hacl_UInt64_sub_mod";"Hacl_UInt64_mul_mod";
+  "Hacl_UInt64_logor";"Hacl_UInt64_logand";"Hacl_UInt64_logxor";"Hacl_UInt64_lognot";
+  "Hacl_UInt64_shift_left";"Hacl_UInt64_shift_right";
+  "Hacl_UInt64_eq_mask";"Hacl_UInt64_gte_mask";"Hacl_UInt64_gt_mask";
+  "Hacl_UInt64_lte_mask";"Hacl_UInt64_lt_mask";
+  "Hacl_Endianness_hstore32_le";"Hacl_Endianness_hload32_le";
+  "Hacl_Endianness_hstore64_le";"Hacl_Endianness_hload64_le";
+  "Hacl_Endianness_hstore32_be";"Hacl_Endianness_hload32_be";
+  "Hacl_Endianness_hstore64_be";"Hacl_Endianness_hload64_be";
+  "Hacl_Cast_uint32_to_sint32";"Hacl_Cast_uint8_to_sint8";"Hacl_Cast_uint64_to_sint64"
 ]
 
 let is_primitive x =
@@ -172,6 +182,12 @@ let i32_one =
 let mk_unit =
   i32_zero
 
+let i64_mul =
+  [ dummy_phrase (W.Ast.Binary (mk_value I64 W.Ast.IntOp.Mul)) ]
+
+let i64_add =
+  [ dummy_phrase (W.Ast.Binary (mk_value I64 W.Ast.IntOp.Add)) ]
+
 let i64_sub =
   [ dummy_phrase (W.Ast.Binary (mk_value I64 W.Ast.IntOp.Sub)) ]
 
@@ -181,6 +197,12 @@ let i64_xor =
 let i64_not =
   mk_const (mk_int64 Int64.zero) @
   [ dummy_phrase (W.Ast.Compare (mk_value I64 W.Ast.IntOp.Eq)) ]
+
+let i64_or =
+  [ dummy_phrase (W.Ast.Binary (mk_value I64 W.Ast.IntOp.Or)) ]
+
+let i64_and =
+  [ dummy_phrase (W.Ast.Binary (mk_value I64 W.Ast.IntOp.And)) ]
 
 let mk_drop =
   [ dummy_phrase W.Ast.Drop ]
@@ -739,6 +761,39 @@ and mk_expr env (e: expr): W.Ast.instr list =
       mk_expr env e2 @
       i32_or
 
+  | CallFunc (("Hacl_UInt8_logand" | "Hacl_UInt32_logand"), [ e1; e2 ]) ->
+      mk_expr env e1 @
+      mk_expr env e2 @
+      i32_and
+
+  | CallFunc (("Hacl_UInt8_lognot" | "Hacl_UInt32_lognot"), [ e ]) ->
+      mk_expr env e @
+      i32_not
+
+  | CallFunc ("Hacl_UInt64_logxor", [ e1; e2 ]) ->
+      mk_expr env e1 @
+      mk_expr env e2 @
+      i64_xor
+
+  | CallFunc ("Hacl_UInt64_logor", [ e1; e2 ]) ->
+      mk_expr env e1 @
+      mk_expr env e2 @
+      i64_or
+
+  | CallFunc ("Hacl_UInt64_logand", [ e1; e2 ]) ->
+      mk_expr env e1 @
+      mk_expr env e2 @
+      i64_and
+
+  | CallFunc ("Hacl_UInt64_lognot", [ e ]) ->
+      mk_expr env e @
+      i64_not
+
+  | CallFunc ("Hacl_UInt64_add_mod", [ e1; e2 ]) ->
+      mk_expr env e1 @
+      mk_expr env e2 @
+      i64_add
+
   | CallFunc ("Hacl_UInt32_add_mod", [ e1; e2 ]) ->
       mk_expr env e1 @
       mk_expr env e2 @
@@ -748,6 +803,54 @@ and mk_expr env (e: expr): W.Ast.instr list =
       mk_expr env e1 @
       mk_expr env e2 @
       i32_add @
+      mk_const (mk_int32 (Int32.of_int (0xFF))) @
+      i32_and
+
+  | CallFunc ("Hacl_UInt64_sub_mod", [ e1; e2 ]) ->
+      mk_expr env e1 @
+      mk_expr env e2 @
+      i64_sub
+
+  | CallFunc ("Hacl_UInt32_sub_mod", [ e1; e2 ]) ->
+      mk_expr env e1 @
+      mk_expr env e2 @
+      i32_sub
+
+  | CallFunc ("Hacl_UInt8_sub_mod" , [ e1; e2 ]) ->
+      mk_expr env e1 @
+      mk_expr env e2 @
+      i32_sub @
+      mk_const (mk_int32 (Int32.of_int (0xFF))) @
+      i32_and
+
+  | CallFunc ("Hacl_UInt64_mul_mod", [ e1; e2 ]) ->
+      mk_expr env e1 @
+      mk_expr env e2 @
+      i64_mul
+
+  | CallFunc ("Hacl_UInt32_mul_mod", [ e1; e2 ]) ->
+      mk_expr env e1 @
+      mk_expr env e2 @
+      i32_mul
+
+  | CallFunc ("Hacl_UInt8_mul_mod" , [ e1; e2 ]) ->
+      mk_expr env e1 @
+      mk_expr env e2 @
+      i32_mul @
+      mk_const (mk_int32 (Int32.of_int (0xFF))) @
+      i32_and
+
+  | CallFunc ("Hacl_UInt8_shift_left", [ e1; e2 ]) ->
+      mk_expr env e1 @
+      mk_expr env e2 @
+      [ dummy_phrase (W.Ast.Binary (mk_value I64 W.Ast.IntOp.Shl)) ] @
+      mk_const (mk_int32 (Int32.of_int (0xFF))) @
+      i32_and
+
+  | CallFunc ("Hacl_UInt8_shift_right", [ e1; e2 ]) ->
+      mk_expr env e1 @
+      mk_expr env e2 @
+      [ dummy_phrase (W.Ast.Binary (mk_value I64 W.Ast.IntOp.ShrU)) ] @
       mk_const (mk_int32 (Int32.of_int (0xFF))) @
       i32_and
 
@@ -761,7 +864,19 @@ and mk_expr env (e: expr): W.Ast.instr list =
       mk_expr env e2 @
       [ dummy_phrase (W.Ast.Binary (mk_value I32 W.Ast.IntOp.ShrU)) ]
 
-  | CallFunc (("Hacl_Cast_uint32_to_sint32" | "Hacl_Cast_uint8_to_sint8"), [ e ]) ->
+  | CallFunc ("Hacl_UInt64_shift_left", [ e1; e2 ]) ->
+      mk_expr env e1 @
+      mk_expr env e2 @
+      [ dummy_phrase (W.Ast.Binary (mk_value I64 W.Ast.IntOp.Shl)) ]
+
+  | CallFunc ("Hacl_UInt64_shift_right", [ e1; e2 ]) ->
+      mk_expr env e1 @
+      mk_expr env e2 @
+      [ dummy_phrase (W.Ast.Binary (mk_value I64 W.Ast.IntOp.ShrU)) ]
+
+  | CallFunc (("Hacl_Cast_uint32_to_sint32" |
+               "Hacl_Cast_uint8_to_sint8" |
+               "Hacl_Cast_uint64_to_sint64"), [ e ]) ->
       mk_expr env e
 
   | CallFunc (name, es) ->

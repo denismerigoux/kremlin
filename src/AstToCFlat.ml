@@ -47,8 +47,10 @@ let size_of (t: typ): size =
   match t with
   | TInt w ->
       size_of_width w
-  | TQualified ([], ("Hacl_UInt8_t" | "Hacl_UInt32_t")) ->
+  | TQualified ([], ("Hacl_UInt8_t" | "Hacl_UInt32_t" )) ->
       I32
+  | TQualified ([], ("Hacl_Uint64_t")) ->
+      I64
   | TArray _ | TBuf _ ->
       I32
   | TBool | TUnit ->
@@ -70,6 +72,8 @@ let array_size_of (t: typ): array_size =
   match t with
   | TInt w ->
     array_size_of_width w
+  | TQualified ([], "Hacl_UInt64_t") ->
+      A64
   | TQualified ([], "Hacl_UInt32_t") ->
       A32
   | TQualified ([], "Hacl_UInt8_t") ->
@@ -104,7 +108,7 @@ let fields_of_struct =
 (* The exact size as a number of bytes of any type. *)
 let rec byte_size (env: env) (t: typ): int =
   match t with
-  | TQualified ([], ("Hacl_UInt8_t" | "Hacl_UInt32_t")) ->
+  | TQualified ([], ("Hacl_UInt8_t" | "Hacl_UInt32_t" | "Hacl_UInt64_t")) ->
     bytes_in (array_size_of t)
   | TQualified lid ->
       begin try

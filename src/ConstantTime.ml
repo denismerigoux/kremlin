@@ -10,11 +10,13 @@ type secrecy =
   | Secret
   | Public
   | Zero
+  | PointerToSecret
 
-let show_secrecy secrecy = match secrecy with
+let rec show_secrecy secrecy = match secrecy with
   | Secret -> "S"
   | Public -> "P"
   | Zero -> "Z"
+  | PointerToSecret -> "*S"
 
 type proto_secrecy = secrecy list * secrecy option * A.ident
 
@@ -41,14 +43,20 @@ let decl_typ_ident (decl : A.decl) : (A.lident * A.typ list * A.typ) option =
   | A.DExternal _-> None
 
 let typ_to_secret (typ: A.typ) : secrecy = match typ with
-  | A.TInt _ | A.TBool | A.TUnit | A.TAny
-  | A.TBuf _ | A.TArray _ ->
-    Public
+  | A.TBuf (A.TQualified ([], name)) | A.TArray ((A.TQualified ([], name)),_) ->
+    if KString.starts_with name "Hacl_" then
+      PointerToSecret
+    else
+      assert false
   | A.TQualified ([], name) ->
     if KString.starts_with name "Hacl_" then
       Secret
     else
       assert false
+  | A.TBuf _ | A.TArray _ ->
+    Public
+  | A.TInt _ | A.TBool | A.TUnit | A.TAny ->
+    Public
   | A.TArrow _ | A.TApp _ | A.TBound _
   | A.TTuple _ | A.TAnonymous _ | A.TQualified _ ->
     assert false
@@ -61,7 +69,10 @@ let analyse_function_prototype_secrecy (files : A.file list) : secrecy_data =
           | None -> secrecy_data
           | Some ((_,ident),typ_args,typ) ->
             let proto_secrecy =
-              List.map typ_to_secret typ_args, Some (typ_to_secret typ), ident
+              if ident = "WasmSupport_align_64" then
+                [PointerToSecret], Some PointerToSecret, ident
+              else
+                List.map typ_to_secret typ_args, Some (typ_to_secret typ), ident
             in
             try
               let funcs_secrecy = IdentMap.find filename secrecy_data in
@@ -83,7 +94,7 @@ type loc = L.loc list
 let assert_public (arg : secrecy) (err_context : string) (loc: loc) : unit =
   match arg with
   | Public | Zero -> ()
-  | Secret ->
+  | Secret | PointerToSecret ->
     Warnings.maybe_fatal_error
       (KPrint.bsprintf "%a" L.ploc loc, Warnings.ConstantTimeValidatorFailure (
           err_context,
@@ -144,7 +155,7 @@ let unify_unop_vt (arg : secrecy) (loc : loc) : secrecy =
   assert_public arg "argument of a variable-time unary operator" loc;
   Public
 
-let unify_ct_binop (arg1 : secrecy) (arg2: secrecy) : secrecy =
+let unify_ct_binop (arg1 : secrecy) (arg2: secrecy) (loc : loc) : secrecy =
   match arg1, arg2 with
   | (Public, Public) -> Public
   | (Zero, Zero) -> Public
@@ -152,6 +163,15 @@ let unify_ct_binop (arg1 : secrecy) (arg2: secrecy) : secrecy =
   | (Secret, Public) | (Public, Secret)
   | (Secret, Zero) | (Zero, Secret)
   | (Secret, Secret) -> Secret
+  | (PointerToSecret, Public)  | (PointerToSecret, Zero)
+  | (Zero, PointerToSecret)  | (Public, PointerToSecret) -> PointerToSecret
+  | _ ->
+    Warnings.maybe_fatal_error
+      (KPrint.bsprintf "%a" L.ploc loc, Warnings.ConstantTimeValidatorFailure (
+          "constant-time operator",
+          "pointers cannot be mixed with secret values"
+        ));
+    Secret
 
 let unify_vt_binop (arg1 : secrecy) (arg2 : secrecy) (loc : loc) : secrecy =
   assert_public arg1 "first argument of a variable-time binary operator" loc;
@@ -212,17 +232,37 @@ and check_instr
     locals_secrecy, value_stack
   | WA.Load _ ->
     let address = Stack.pop value_stack in
-    assert_public address "address for a memory load" loc;
     begin match address with
-      | Zero ->  Stack.push Public value_stack
-      | Public ->   Stack.push Secret value_stack;
-      | Secret -> assert false
+      | Zero ->
+        (*
+          We load from address zero in order to allocate new buffers. These
+          newly-allocated bufers are assumed to contain secret values.
+        *)
+        Stack.push PointerToSecret value_stack;
+      | PointerToSecret ->   Stack.push Secret value_stack;
+      | Secret | Public ->
+        Warnings.maybe_fatal_error
+          (KPrint.bsprintf "%a" L.ploc loc, Warnings.ConstantTimeValidatorFailure (
+              "a memory load",
+              "the address should be a valid pointer"
+            ))
     end;
     locals_secrecy, value_stack
   | WA.Store _ ->
-    let _ = Stack.pop value_stack in
+    let value = Stack.pop value_stack in
     let address = Stack.pop value_stack in
-    assert_public address "Address for a memory store" loc;
+    begin match value, address with
+      | (Secret, PointerToSecret)
+      | (Public, PointerToSecret)
+      | (Zero, PointerToSecret)
+      | (PointerToSecret, Zero) -> ()
+      | _ ->
+        Warnings.maybe_fatal_error
+          (KPrint.bsprintf "%a" L.ploc loc, Warnings.ConstantTimeValidatorFailure (
+              "a memory store",
+              "the value stored should have a coherent secrecy with the address it is stored to"
+            ))
+    end;
     locals_secrecy, value_stack
   | WA.Const v when v.WS.it = WV.I32 (Int32.zero)  ->
     Stack.push Zero value_stack;
@@ -234,7 +274,7 @@ and check_instr
     let arg1 = Stack.pop value_stack in
     let arg2 = Stack.pop value_stack in
     let result = if constant_time_binop op then
-        unify_ct_binop arg1 arg2
+        unify_ct_binop arg1 arg2 loc
       else
         unify_vt_binop arg1 arg2 loc
     in
