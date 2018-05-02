@@ -95,11 +95,16 @@ let primitives = [
   "Hacl_UInt64_shift_left";"Hacl_UInt64_shift_right";
   "Hacl_UInt64_eq_mask";"Hacl_UInt64_gte_mask";"Hacl_UInt64_gt_mask";
   "Hacl_UInt64_lte_mask";"Hacl_UInt64_lt_mask";
+  "Hacl_UInt128_declassify_u64";
   "Hacl_Endianness_hstore32_le";"Hacl_Endianness_hload32_le";
   "Hacl_Endianness_hstore64_le";"Hacl_Endianness_hload64_le";
+  "Hacl_Endianness_hstore128_le";"Hacl_Endianness_hload128_le";
   "Hacl_Endianness_hstore32_be";"Hacl_Endianness_hload32_be";
   "Hacl_Endianness_hstore64_be";"Hacl_Endianness_hload64_be";
-  "Hacl_Cast_uint32_to_sint32";"Hacl_Cast_uint8_to_sint8";"Hacl_Cast_uint64_to_sint64"
+  "Hacl_Endianness_hstore128_be";"Hacl_Endianness_hload128_be";
+  "Hacl_Cast_uint32_to_sint32";"Hacl_Cast_uint8_to_sint8";
+  "Hacl_Cast_uint64_to_sint64";"Hacl_Cast_uint64_to_sint128";
+  "Hacl_Cast_uint32_to_sint64"
 ]
 
 let is_primitive x =
@@ -174,7 +179,7 @@ let i32_not =
   [ dummy_phrase (W.Ast.Compare (mk_value I32 W.Ast.IntOp.Eq)) ]
 
 let i32_lognot =
-  mk_const (mk_int32 Int32.zero) @
+  mk_const (mk_int32 Int32.minus_one) @
   [ dummy_phrase (W.Ast.Binary (mk_value I32 W.Ast.IntOp.Xor)) ]
 
 let i32_zero =
@@ -203,7 +208,7 @@ let i64_not =
   [ dummy_phrase (W.Ast.Compare (mk_value I64 W.Ast.IntOp.Eq)) ]
 
 let i64_lognot =
-  mk_const (mk_int64 Int64.zero) @
+  mk_const (mk_int64 Int64.minus_one) @
   [ dummy_phrase (W.Ast.Binary (mk_value I64 W.Ast.IntOp.Xor)) ]
 
 let i64_or =
@@ -687,8 +692,8 @@ and mk_expr env (e: expr): W.Ast.instr list =
   | CallFunc (("Hacl_Endianness_hload64_be" | "load64_be"), [ e ]) ->
       mk_expr env (CallFunc ("WasmSupport_betole64", [ CallFunc ("load64_le", [ e ])]))
 
-  | CallFunc ("store128_be", [ dst; src ])
-  | CallFunc ("load128_be", [ src; dst ]) ->
+  | CallFunc (("Hacl_Endianness_hload128_be" | "store128_be"), [ dst; src ])
+  | CallFunc (("Hacl_Endianness_hstore128_be" |"load128_be"), [ src; dst ]) ->
       let local_src = env.n_args + 2 in
       let local_dst = local_src + 1 in
       (* Using the two 32-bit scratch locals for the two addresses. *)
@@ -715,8 +720,8 @@ and mk_expr env (e: expr): W.Ast.instr list =
       (* This is just a glorified memcpy. *)
       mk_unit
 
-  | CallFunc ("store128_le", [ dst; src ])
-  | CallFunc ("load128_le", [ src; dst ]) ->
+  | CallFunc (("Hacl_Endianness_hstore128_le" | "store128_le"), [ dst; src ])
+  | CallFunc (("Hacl_Endianness_hload128_le" | "load128_le"), [ src; dst ]) ->
       let local_src = env.n_args + 2 in
       let local_dst = local_src + 1 in
       (* Using the two 32-bit scratch locals for the two addresses. *)
@@ -881,22 +886,31 @@ and mk_expr env (e: expr): W.Ast.instr list =
   | CallFunc ("Hacl_UInt64_shift_left", [ e1; e2 ]) ->
       mk_expr env e1 @
       mk_expr env e2 @
+      [dummy_phrase (W.Ast.Convert (mk_value I64 W.Ast.I64Op.ExtendUI32))] @
       [ dummy_phrase (W.Ast.Binary (mk_value I64 W.Ast.IntOp.Shl)) ]
 
   | CallFunc ("Hacl_UInt64_shift_right", [ e1; e2 ]) ->
       mk_expr env e1 @
       mk_expr env e2 @
+      [dummy_phrase (W.Ast.Convert (mk_value I64 W.Ast.I64Op.ExtendUI32))] @
       [ dummy_phrase (W.Ast.Binary (mk_value I64 W.Ast.IntOp.ShrU)) ]
 
   | CallFunc (("Hacl_Cast_uint32_to_sint32" |
                "Hacl_Cast_uint8_to_sint8" |
-               "Hacl_Cast_uint64_to_sint64"), [ e ]) ->
+               "Hacl_Cast_uint64_to_sint64" |
+               "Hacl_UInt128_declassify_uint64"), [ e ]) ->
       mk_expr env e
 
   | CallFunc (("Hacl_Cast_uint32_to_sint64" |
                "Hacl_Cast_sint32_to_sint64"), [e]) ->
       mk_expr env e @
       [dummy_phrase (W.Ast.Convert (mk_value I64 W.Ast.I64Op.ExtendUI32))]
+
+  | CallFunc ("Hacl_Cast_uint64_to_sint128", [value;addr]) ->
+      mk_expr env addr @
+      dup32 env @
+      mk_expr env value  @
+      [ dummy_phrase W.Ast.(Store { ty = mk_type I64; align = 0; offset = 0l; sz = None })]
 
   | CallFunc (name, es) ->
       KList.map_flatten (mk_expr env) es @
