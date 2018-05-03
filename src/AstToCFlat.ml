@@ -47,7 +47,7 @@ let size_of (t: typ): size =
   match t with
   | TInt w ->
       size_of_width w
-  | TQualified ([], ("Hacl_UInt8_t" | "Hacl_UInt32_t" )) ->
+  | TQualified ([], ("Hacl_UInt8_t" | "Hacl_UInt32_t")) ->
       I32
   | TQualified ([], ("Hacl_UInt64_t")) ->
       I64
@@ -464,8 +464,13 @@ and mk_expr (env: env) (locals: locals) (e: expr): locals * CF.expr =
   | EAny ->
       locals, cflat_any
 
-  | ECast _ ->
-      Warnings.fatal_error "unsupported cast: %a" pexpr e
+  | ECast (e,_) ->
+      begin match e.typ with
+        | TBuf (TQualified ([], s)) when KString.starts_with s "Hacl_UInt" ->
+          mk_expr env locals e
+        | _ ->
+          Warnings.fatal_error "unsupported cast: %a" pexpr e
+      end
 
   | ELet (b, e1, e2) ->
       if e1.node = EAny then

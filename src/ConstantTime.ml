@@ -43,18 +43,13 @@ let decl_typ_ident (decl : A.decl) : (A.lident * A.typ list * A.typ) option =
   | A.DExternal _-> None
 
 let typ_to_secret (typ: A.typ) : secrecy = match typ with
-  | A.TBuf (A.TQualified ([], name)) | A.TArray ((A.TQualified ([], name)),_) ->
-    if KString.starts_with name "Hacl_" then
-      PointerToSecret
-    else
-      assert false
   | A.TQualified ([], name) ->
     if KString.starts_with name "Hacl_" then
       Secret
     else
       assert false
   | A.TBuf _ | A.TArray _ ->
-    Public
+    PointerToSecret
   | A.TInt _ | A.TBool | A.TUnit | A.TAny ->
     Public
   | A.TArrow _ | A.TApp _ | A.TBound _

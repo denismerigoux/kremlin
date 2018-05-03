@@ -80,6 +80,7 @@ let primitives = [
   "store64_le";
   "store64_be";
   "store128_le";
+  "store128_be";
   "Hacl_UInt8_logxor";"Hacl_UInt8_add_mod";"Hacl_UInt8_sub_mod";"Hacl_UInt8_mul_mod";
   "Hacl_UInt8_logor";"Hacl_UInt8_logand";"Hacl_UInt8_logxor";"Hacl_UInt8_lognot";
   "Hacl_UInt8_shift_left";"Hacl_UInt8_shift_right";
@@ -95,16 +96,14 @@ let primitives = [
   "Hacl_UInt64_shift_left";"Hacl_UInt64_shift_right";
   "Hacl_UInt64_eq_mask";"Hacl_UInt64_gte_mask";"Hacl_UInt64_gt_mask";
   "Hacl_UInt64_lte_mask";"Hacl_UInt64_lt_mask";
-  "Hacl_UInt128_declassify_u64";
+  "Hacl_UInt128_declassify_uint64";
   "Hacl_Endianness_hstore32_le";"Hacl_Endianness_hload32_le";
   "Hacl_Endianness_hstore64_le";"Hacl_Endianness_hload64_le";
-  "Hacl_Endianness_hstore128_le";"Hacl_Endianness_hload128_le";
   "Hacl_Endianness_hstore32_be";"Hacl_Endianness_hload32_be";
   "Hacl_Endianness_hstore64_be";"Hacl_Endianness_hload64_be";
-  "Hacl_Endianness_hstore128_be";"Hacl_Endianness_hload128_be";
   "Hacl_Cast_uint32_to_sint32";"Hacl_Cast_uint8_to_sint8";
-  "Hacl_Cast_uint64_to_sint64";"Hacl_Cast_uint64_to_sint128";
-  "Hacl_Cast_uint32_to_sint64"
+  "Hacl_Cast_uint64_to_sint64";"Hacl_Cast_uint32_to_sint64";
+  "Hacl_Cast_sint128_to_sint64"
 ]
 
 let is_primitive x =
@@ -692,8 +691,8 @@ and mk_expr env (e: expr): W.Ast.instr list =
   | CallFunc (("Hacl_Endianness_hload64_be" | "load64_be"), [ e ]) ->
       mk_expr env (CallFunc ("WasmSupport_betole64", [ CallFunc ("load64_le", [ e ])]))
 
-  | CallFunc (("Hacl_Endianness_hload128_be" | "store128_be"), [ dst; src ])
-  | CallFunc (("Hacl_Endianness_hstore128_be" |"load128_be"), [ src; dst ]) ->
+  | CallFunc ("store128_be", [ dst; src ])
+  | CallFunc ("load128_be", [ src; dst ]) ->
       let local_src = env.n_args + 2 in
       let local_dst = local_src + 1 in
       (* Using the two 32-bit scratch locals for the two addresses. *)
@@ -720,8 +719,8 @@ and mk_expr env (e: expr): W.Ast.instr list =
       (* This is just a glorified memcpy. *)
       mk_unit
 
-  | CallFunc (("Hacl_Endianness_hstore128_le" | "store128_le"), [ dst; src ])
-  | CallFunc (("Hacl_Endianness_hload128_le" | "load128_le"), [ src; dst ]) ->
+  | CallFunc ("store128_le", [ dst; src ])
+  | CallFunc ("load128_le", [ src; dst ]) ->
       let local_src = env.n_args + 2 in
       let local_dst = local_src + 1 in
       (* Using the two 32-bit scratch locals for the two addresses. *)
@@ -905,12 +904,6 @@ and mk_expr env (e: expr): W.Ast.instr list =
                "Hacl_Cast_sint32_to_sint64"), [e]) ->
       mk_expr env e @
       [dummy_phrase (W.Ast.Convert (mk_value I64 W.Ast.I64Op.ExtendUI32))]
-
-  | CallFunc ("Hacl_Cast_uint64_to_sint128", [value;addr]) ->
-      mk_expr env addr @
-      dup32 env @
-      mk_expr env value  @
-      [ dummy_phrase W.Ast.(Store { ty = mk_type I64; align = 0; offset = 0l; sz = None })]
 
   | CallFunc (name, es) ->
       KList.map_flatten (mk_expr env) es @
