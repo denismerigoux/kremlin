@@ -103,7 +103,8 @@ let primitives = [
   "Hacl_Endianness_hstore64_be";"Hacl_Endianness_hload64_be";
   "Hacl_Cast_uint32_to_sint32";"Hacl_Cast_uint8_to_sint8";
   "Hacl_Cast_uint64_to_sint64";"Hacl_Cast_uint32_to_sint64";
-  "Hacl_Cast_sint128_to_sint64"
+  "Hacl_Cast_sint128_to_sint64";"Hacl_Cast_sint64_to_sint128";
+  "Hacl_UInt64_eq_mask";
 ]
 
 let is_primitive x =
@@ -215,6 +216,9 @@ let i64_or =
 
 let i64_and =
   [ dummy_phrase (W.Ast.Binary (mk_value I64 W.Ast.IntOp.And)) ]
+
+let i64_shl =
+  [ dummy_phrase (W.Ast.Binary (mk_value I64 W.Ast.IntOp.Shl)) ]
 
 let mk_drop =
   [ dummy_phrase W.Ast.Drop ]
@@ -868,7 +872,7 @@ and mk_expr env (e: expr): W.Ast.instr list =
   | CallFunc ("Hacl_UInt8_shift_right", [ e1; e2 ]) ->
       mk_expr env e1 @
       mk_expr env e2 @
-      [ dummy_phrase (W.Ast.Binary (mk_value I64 W.Ast.IntOp.ShrU)) ] @
+      [ dummy_phrase (W.Ast.Binary (mk_value I32 W.Ast.IntOp.ShrU)) ] @
       mk_const (mk_int32 (Int32.of_int (0xFF))) @
       i32_and
 
@@ -904,6 +908,62 @@ and mk_expr env (e: expr): W.Ast.instr list =
                "Hacl_Cast_sint32_to_sint64"), [e]) ->
       mk_expr env e @
       [dummy_phrase (W.Ast.Convert (mk_value I64 W.Ast.I64Op.ExtendUI32))]
+
+  | CallFunc ("Hacl_Cast_sint8_to_sint64", [e]) ->
+      mk_expr env e @
+      [dummy_phrase (W.Ast.Convert (mk_value I64 W.Ast.I64Op.ExtendUI32))]
+
+  | CallFunc ("Hacl_Cast_sint128_to_sint64", [e]) ->
+      mk_expr env e @
+      [ dummy_phrase W.Ast.(Load { ty = mk_type I64; align = 0; offset = 0l; sz = None }) ]
+
+  | CallFunc ("Hacl_Cast_sint64_to_sint128", [addr128; value64]) ->
+      mk_expr env addr128 @
+      mk_expr env value64 @
+      [ dummy_phrase W.Ast.(Store { ty = mk_type I64; align = 0; offset = 0l; sz = None }) ]
+
+  | CallFunc ("Hacl_UInt64_eq_mask", [x;y]) ->
+      mk_expr env x @
+      mk_expr env y @
+      i64_xor @
+      i64_lognot @
+      mk_const (mk_int64 (Int64.of_int 32)) @
+      i64_shl @
+      mk_const (mk_int64 (Int64.of_int 16)) @
+      i64_shl @
+      mk_const (mk_int64 (Int64.of_int 8)) @
+      i64_shl @
+      mk_const (mk_int64 (Int64.of_int 4)) @
+      i64_shl @
+      mk_const (mk_int64 (Int64.of_int 2)) @
+      i64_shl @
+      mk_const (mk_int64 (Int64.of_int 1)) @
+      i64_shl @
+      mk_const (mk_int64 (Int64.of_int 63)) @
+      [ dummy_phrase (W.Ast.Binary (mk_value I64 W.Ast.IntOp.ShrS)) ]
+
+  | CallFunc ("Hacl_UInt64_gte_mask", [x;y]) ->
+      mk_expr env x @
+      mk_const (mk_int64 (Int64.of_string "0x7fffffffffffffff")) @
+      i64_and @
+      mk_expr env y @
+      mk_const (mk_int64 (Int64.of_string "0x7fffffffffffffff")) @
+      i64_and @
+      i64_sub @
+      mk_const (mk_int64 (Int64.of_int 63)) @
+      [ dummy_phrase (W.Ast.Binary (mk_value I64 W.Ast.IntOp.ShrS)) ] @
+      i64_lognot @
+      mk_expr env x @
+      mk_const (mk_int64 (Int64.of_string "0x8000000000000000")) @
+      i64_and @
+      mk_expr env y @
+      mk_const (mk_int64 (Int64.of_string "0x8000000000000000")) @
+      i64_and @
+      i64_sub @
+      mk_const (mk_int64 (Int64.of_int 63)) @
+      [ dummy_phrase (W.Ast.Binary (mk_value I64 W.Ast.IntOp.ShrS)) ] @
+      i64_lognot @
+      i64_and
 
   | CallFunc (name, es) ->
       KList.map_flatten (mk_expr env) es @
